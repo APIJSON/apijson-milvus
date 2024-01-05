@@ -146,7 +146,7 @@ public class MilvusUtil {
         else if (method == RequestMethod.DELETE) {
             DeleteParam param = DeleteParam.newBuilder()
                     .withCollectionName(config.getSQLTable())
-                    .withExpr(config.getWhereString(false))
+                    .withExpr(config.setPrepared(false).getWhereString(false))
                     .build();
             mr = milvusClient.delete(param);
         }
