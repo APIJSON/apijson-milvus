@@ -34,9 +34,12 @@ import static apijson.orm.AbstractSQLExecutor.KEY_RAW_LIST;
  * @author Lemon
  * @see DemoSQLExecutor 重写 execute 方法：
  *     \@Override
- *     public JSONObject execute(@NotNull SQLConfig<Long> config, boolean unknownType) throws Exception {
+ *      public JSONObject execute(@NotNull SQLConfig<Long> config, boolean unknownType) throws Exception {
+ *          if (config.isMilvus()) {
+ *              return MilvusUtil.execute(config, unknownType);
+ *          }
  *
- *         return MilvusUtil.execute(config, unknownType);
+ *          return super.execute(config, unknownType);
  *     }
  */
 public class MilvusUtil {

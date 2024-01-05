@@ -1,8 +1,8 @@
-# apijson-mongodb  [![](https://jitpack.io/v/APIJSON/apijson-mongodb.svg)](https://jitpack.io/#APIJSON/apijson-mongodb)
-腾讯 [APIJSON](https://github.com/Tencent/APIJSON) 的 MongoDB 数据库插件，可通过 Maven, Gradle 等远程依赖。<br />
-A MongoDB plugin for Tencent [APIJSON](https://github.com/Tencent/APIJSON)
+# apijson-milvus  [![](https://jitpack.io/v/APIJSON/apijson-milvus.svg)](https://jitpack.io/#APIJSON/apijson-milvus)
+腾讯 [APIJSON](https://github.com/Tencent/APIJSON) 6.4.0+ 的 Milvus 数据库插件，可通过 Maven, Gradle 等远程依赖。<br />
+A Milvus plugin for Tencent [APIJSON](https://github.com/Tencent/APIJSON) 6.4.0+
 
-![image](https://github-production-user-asset-6210df.s3.amazonaws.com/5738175/293696252-36406e20-b157-4121-bca7-280491462481.png)
+![image](https://github-production-user-asset-6210df.s3.amazonaws.com/5738175/294214558-1a438f32-b33b-4140-b128-3afc0e97877f.png)
 
 ## 添加依赖
 ## Add Dependency
@@ -23,19 +23,19 @@ A MongoDB plugin for Tencent [APIJSON](https://github.com/Tencent/APIJSON)
 
 <br />
 
-#### 2. 在 pom.xml 中添加 apijson-mongodb 依赖
-#### 2. Add the apijson-mongodb dependency to pom.xml
+#### 2. 在 pom.xml 中添加 apijson-milvus 依赖
+#### 2. Add the apijson-milvus dependency to pom.xml
 ```xml
 	<dependency>
 	    <groupId>com.github.APIJSON</groupId>
-	    <artifactId>apijson-mongodb</artifactId>
+	    <artifactId>apijson-milvus</artifactId>
 	    <version>LATEST</version>
 	</dependency>
 ```
 
 <br />
 
-https://github.com/APIJSON/APIJSON-Demo/blob/master/APIJSON-Java-Server/APIJSONBoot/pom.xml
+https://github.com/APIJSON/APIJSON-Demo/blob/master/APIJSON-Java-Server/APIJSONBoot-MultiDataSource/pom.xml
 
 <br />
 <br />
@@ -52,11 +52,11 @@ https://github.com/APIJSON/APIJSON-Demo/blob/master/APIJSON-Java-Server/APIJSONB
 ```
 <br />
 
-#### 2. 在项目某个 module 目录(例如 `app`) build.gradle 中添加 apijson-mongodb 依赖
-#### 2. Add the apijson-mongodb dependency in one of your modules(such as `app`)
+#### 2. 在项目某个 module 目录(例如 `app`) build.gradle 中添加 apijson-milvus 依赖
+#### 2. Add the apijson-milvus dependency in one of your modules(such as `app`)
 ```gradle
 	dependencies {
-	        implementation 'com.github.APIJSON:apijson-mongodb:latest'
+	        implementation 'com.github.APIJSON:apijson-milvus:latest'
 	}
 ```
 
@@ -67,19 +67,22 @@ https://github.com/APIJSON/APIJSON-Demo/blob/master/APIJSON-Java-Server/APIJSONB
 ## 使用
 ## Usage
 
-在你项目继承 AbstractSQLExecutor 的子类重写方法 getValue <br/>
-Override getValue in your SQLExecutor extends AbstractSQLExecutor
+在你项目继承 AbstractSQLExecutor 的子类重写方法 execute <br/>
+Override execute in your SQLExecutor extends AbstractSQLExecutor
 ```java
         @Override
-        protected Object getValue(SQLConfig<Long> config, ResultSet rs, ResultSetMetaData rsmd, int tablePosition, JSONObject table, int columnIndex, String lable, Map<String, JSONObject> childMap) throws Exception {
-            Object v = super.getValue(config, rs, rsmd, tablePosition, table, columnIndex, lable, childMap);
-            return MongoUtil.getValue(v);
+        public JSONObject execute(@NotNull SQLConfig<Long> config, boolean unknownType) throws Exception {
+            if (config.isMilvus()) {
+                return MilvusUtil.execute(config, unknownType);
+            }
+   
+            return super.execute(config, unknownType);
         }
 ```
 
-#### 见 [MongoUtil](/apijson/milvus/MongoUtil.java) 的注释及 [APIJSONBoot](https://github.com/APIJSON/APIJSON-Demo/blob/master/APIJSON-Java-Server/APIJSONBoot) 的 [DemoSQLExecutor](https://github.com/APIJSON/APIJSON-Demo/blob/master/APIJSON-Java-Server/APIJSONBoot/src/main/java/apijson/demo/DemoSQLExecutor.java) <br />
+#### 见 [MilvusUtil](/apijson/milvus/MilvusUtil.java) 的注释及 [APIJSONBoot-MultiDataSource](https://github.com/APIJSON/APIJSON-Demo/blob/master/APIJSON-Java-Server/APIJSONBoot-MultiDataSource) 的 [DemoSQLExecutor](https://github.com/APIJSON/APIJSON-Demo/blob/master/APIJSON-Java-Server/APIJSONBoot-MultiDataSource/src/main/java/apijson/demo/DemoSQLExecutor.java) <br />
 
-#### See document in [MongoUtil](/apijson/milvus/MongoUtil.java) and [DemoSQLExecutor](https://github.com/APIJSON/APIJSON-Demo/blob/master/APIJSON-Java-Server/APIJSONBoot/src/main/java/apijson/demo/DemoSQLExecutor.java) in [APIJSONBoot](https://github.com/APIJSON/APIJSON-Demo/blob/master/APIJSON-Java-Server/APIJSONBoot)
+#### See document in [MilvusUtil](/apijson/milvus/MilvusUtil.java) and [DemoSQLExecutor](https://github.com/APIJSON/APIJSON-Demo/blob/master/APIJSON-Java-Server/APIJSONBoot-MultiDataSource/src/main/java/apijson/demo/DemoSQLExecutor.java) in [APIJSONBoot-MultiDataSource](https://github.com/APIJSON/APIJSON-Demo/blob/master/APIJSON-Java-Server/APIJSONBoot-MultiDataSource)
 
 <br />
 <br />
@@ -92,4 +95,4 @@ https://github.com/Tencent/APIJSON/issues/36
 
 #### 点右上角 ⭐Star 支持一下，谢谢 ^_^
 #### Please ⭐Star this project ^_^
-https://github.com/APIJSON/apijson-mongodb
+https://github.com/APIJSON/apijson-milvus
