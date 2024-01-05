@@ -14,18 +14,24 @@ limitations under the License.*/
 
 package apijson.milvus;
 
+import apijson.JSONResponse;
 import apijson.NotNull;
+import apijson.RequestMethod;
+import apijson.orm.AbstractParser;
 import apijson.orm.SQLConfig;
 import com.alibaba.fastjson.JSONObject;
 import io.milvus.client.MilvusServiceClient;
+import io.milvus.grpc.MutationResult;
 import io.milvus.param.ConnectParam;
+import io.milvus.param.R;
+import io.milvus.param.credential.UpdateCredentialParam;
+import io.milvus.param.dml.DeleteParam;
+import io.milvus.param.dml.InsertParam;
 import org.datayoo.moql.RecordSet;
 import org.datayoo.moql.querier.milvus.MilvusQuerier;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.math.BigDecimal;
+import java.util.*;
 
 import static apijson.orm.AbstractSQLExecutor.KEY_RAW_LIST;
 
@@ -45,14 +51,144 @@ import static apijson.orm.AbstractSQLExecutor.KEY_RAW_LIST;
 public class MilvusUtil {
     public static final String TAG = "MilvusUtil";
 
-    public static JSONObject execute(@NotNull SQLConfig<Long> config, boolean unknownType) throws Exception {
-        // 构建Milvus客户端
+    public static <T> JSONObject execute(@NotNull SQLConfig<T> config, boolean unknownType) throws Exception {
+        if (RequestMethod.isQueryMethod(config.getMethod())) {
+            List<JSONObject> list = executeQuery(config, unknownType);
+            JSONObject result = list == null || list.isEmpty() ? null : list.get(0);
+            if (result == null) {
+                result = new JSONObject(true);
+            }
+
+            if (list != null && list.size() > 1) {
+                result.put(KEY_RAW_LIST, list);
+            }
+
+            return result;
+        }
+
+        return executeUpdate(config, null);
+    }
+
+    public static <T> int execUpdate(SQLConfig<T> config, String sql) throws Exception {
+        JSONObject result = executeUpdate(config, sql);
+        return result.getIntValue(JSONResponse.KEY_COUNT);
+    }
+
+    public static <T> JSONObject executeUpdate(SQLConfig<T> config, String sql) throws Exception {
         MilvusServiceClient milvusClient = new MilvusServiceClient(
                 ConnectParam.newBuilder().withUri(config.getDBUri()).build()
         );
 
-        // 使用Milvus客户端创建Milvus查询器
-        MilvusQuerier milvusQuerier = new MilvusQuerier(milvusClient);
+        R<MutationResult> mr;
+        JSONObject result = AbstractParser.newSuccessResult();
+
+        RequestMethod method = config.getMethod();
+        if (method == RequestMethod.POST) {
+            List<String> cl = config.getColumn();
+            List<List<Object>> vs = config.getValues();
+
+            List<InsertParam.Field> fl = new ArrayList<>(cl == null ? 0 : cl.size());
+            if (cl != null) {
+                Map<String, List<Object>> map = new HashMap<>();
+                for (int i = 0; i < vs.size(); i++) {
+                    List<Object> vl = vs.get(i);
+                    for (int j = 0; j < cl.size(); j++) {
+                        String k = cl.get(j);
+                        List<Object> nvl = map.get(k);
+                        if (nvl == null) {
+                            nvl = new ArrayList<>();
+                            map.put(k, nvl);
+                        }
+
+                        Object v = vl.get(j);
+                        if (v instanceof BigDecimal) {
+                            v = ((BigDecimal) v).floatValue();
+                        }
+                        else if (v instanceof Collection) {
+                            Collection c = (Collection) v;
+                            ArrayList<Object> nl = new ArrayList<>();
+                            for (Object cv : c) {
+                                if (cv instanceof BigDecimal) {
+                                    nl.add(((BigDecimal) cv).floatValue());
+                                }
+                                else {
+                                    nl.add(cv);
+                                }
+                            }
+
+                            v = nl;
+                        }
+
+                        nvl.add(v);
+                    }
+                }
+
+                Set<Map.Entry<String, List<Object>>> set = map.entrySet();
+                for (Map.Entry<String, List<Object>> ety : set) {
+                    InsertParam.Field f = new InsertParam.Field(ety.getKey(), ety.getValue());
+                    fl.add(f);
+                }
+            }
+
+            InsertParam param = InsertParam.newBuilder()
+                    .withCollectionName(config.getSQLTable())
+                    .withFields(fl)
+                    .build();
+
+            mr = milvusClient.insert(param);
+        }
+        else if (method == RequestMethod.PUT) {
+//            UpdateCredentialParam param = UpdateCredentialParam.newBuilder()
+//                    .build();
+//            milvusClient.updateCredential(param);
+            throw new UnsupportedOperationException("Milvus Java SDK 暂不支持修改记录！");
+        }
+        else if (method == RequestMethod.DELETE) {
+            DeleteParam param = DeleteParam.newBuilder()
+                    .withCollectionName(config.getSQLTable())
+                    .withExpr(config.getWhereString(false))
+                    .build();
+            mr = milvusClient.delete(param);
+        }
+        else {
+            throw new UnsupportedOperationException("Milvus Java SDK 暂不支持 APIJSON " + method + " 这个操作！");
+        }
+
+        if (mr == null) {
+            return result;
+        }
+
+        if (mr.getException() != null) {
+            throw mr.getException();
+        }
+
+        MutationResult data = mr.getData();
+        List<Integer> sl = data.getSuccIndexList();
+        int sc = sl == null ? 0 : sl.size();
+
+        result.put(JSONResponse.KEY_COUNT, sc);
+        if (config.getId() != null) {
+            result.put(JSONResponse.KEY_ID, config.getId());
+        }
+
+        List<Integer> el = data.getErrIndexList();
+        int fc = el == null ? 0 : el.size(); // data.getInsertCnt() - data.getSuccIndexCount();
+        if (fc > 0) {
+            result.put("failCount", fc);
+            result.put("failIdList", el);
+
+            result.put("successCount", sc);
+            result.put("successIdList", sl);
+        }
+
+        return result;
+    }
+
+    public static <T> List<JSONObject> executeQuery(@NotNull SQLConfig<T> config, boolean unknownType) throws Exception {
+        // 构建Milvus客户端
+        MilvusServiceClient milvusClient = new MilvusServiceClient(
+                ConnectParam.newBuilder().withUri(config.getDBUri()).build()
+        );
 
         /*
             查询语句含义：从book集合中筛选数据，并返回col1,col2两个列。筛选条件为，当数据的col3列值为4，col4列值为'a','b','c'中的任意一
@@ -60,6 +196,10 @@ public class MilvusUtil {
         */
         String sql = config.getSQL(false); //
 //      String sql = "select id,userId,momentId,content,date from Comment where vMatch(vec, 'L2', '[[1]]') and consistencyLevel('STRONG')  limit 1,1";
+
+
+        // 使用Milvus客户端创建Milvus查询器
+        MilvusQuerier milvusQuerier = new MilvusQuerier(milvusClient);
         // 使用查询器执行sql语句，并返回查询结果
         RecordSet recordSet = milvusQuerier.query(sql);
 
@@ -70,8 +210,8 @@ public class MilvusUtil {
 
 //      List<Object[]> list = count <= 0 ? null : recordSet.getRecords();
 
-        if (list == null || list.isEmpty()) {
-            return new JSONObject(true);
+        if (list == null) {
+            return null;
         }
 
         List<JSONObject> nl = new ArrayList<>(list.size());
@@ -87,12 +227,7 @@ public class MilvusUtil {
             nl.add(obj);
         }
 
-        JSONObject result = nl.get(0); // JSON.parseObject(list.get(0));
-        if (nl.size() > 1) {
-            result.put(KEY_RAW_LIST, nl);
-        }
-
-        return result;
+        return nl;
     }
 
 }
