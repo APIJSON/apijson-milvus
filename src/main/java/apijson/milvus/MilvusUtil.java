@@ -17,6 +17,7 @@ package apijson.milvus;
 import apijson.JSONResponse;
 import apijson.NotNull;
 import apijson.RequestMethod;
+import apijson.StringUtil;
 import apijson.orm.AbstractParser;
 import apijson.orm.SQLConfig;
 import com.alibaba.fastjson.JSONObject;
@@ -24,7 +25,6 @@ import io.milvus.client.MilvusServiceClient;
 import io.milvus.grpc.MutationResult;
 import io.milvus.param.ConnectParam;
 import io.milvus.param.R;
-import io.milvus.param.credential.UpdateCredentialParam;
 import io.milvus.param.dml.DeleteParam;
 import io.milvus.param.dml.InsertParam;
 import org.datayoo.moql.RecordSet;
@@ -51,9 +51,9 @@ import static apijson.orm.AbstractSQLExecutor.KEY_RAW_LIST;
 public class MilvusUtil {
     public static final String TAG = "MilvusUtil";
 
-    public static <T> JSONObject execute(@NotNull SQLConfig<T> config, boolean unknownType) throws Exception {
+    public static <T> JSONObject execute(@NotNull SQLConfig<T> config, String sql, boolean unknownType) throws Exception {
         if (RequestMethod.isQueryMethod(config.getMethod())) {
-            List<JSONObject> list = executeQuery(config, unknownType);
+            List<JSONObject> list = executeQuery(config, sql, unknownType);
             JSONObject result = list == null || list.isEmpty() ? null : list.get(0);
             if (result == null) {
                 result = new JSONObject(true);
@@ -66,7 +66,7 @@ public class MilvusUtil {
             return result;
         }
 
-        return executeUpdate(config, null);
+        return executeUpdate(config, sql);
     }
 
     public static <T> int execUpdate(SQLConfig<T> config, String sql) throws Exception {
@@ -184,7 +184,7 @@ public class MilvusUtil {
         return result;
     }
 
-    public static <T> List<JSONObject> executeQuery(@NotNull SQLConfig<T> config, boolean unknownType) throws Exception {
+    public static <T> List<JSONObject> executeQuery(@NotNull SQLConfig<T> config, String sql, boolean unknownType) throws Exception {
         // 构建Milvus客户端
         MilvusServiceClient milvusClient = new MilvusServiceClient(
                 ConnectParam.newBuilder().withUri(config.getDBUri()).build()
@@ -194,14 +194,13 @@ public class MilvusUtil {
             查询语句含义：从book集合中筛选数据，并返回col1,col2两个列。筛选条件为，当数据的col3列值为4，col4列值为'a','b','c'中的任意一
             个，且vec向量字段采用'L2'类型匹配，值为'[[1.0, 2.0, 3.0],[1.1,2.1,3.1]]'。另外，采用强一致性级别在10个单元内进行检索，取第11到第15，5条命中记录。
         */
-        String sql = config.getSQL(false); //
 //      String sql = "select id,userId,momentId,content,date from Comment where vMatch(vec, 'L2', '[[1]]') and consistencyLevel('STRONG')  limit 1,1";
 
 
         // 使用Milvus客户端创建Milvus查询器
         MilvusQuerier milvusQuerier = new MilvusQuerier(milvusClient);
         // 使用查询器执行sql语句，并返回查询结果
-        RecordSet recordSet = milvusQuerier.query(sql);
+        RecordSet recordSet = milvusQuerier.query(StringUtil.isEmpty(sql) ? config.getSQL(false) : sql);
 
 //      int count = recordSet == null ? 0 : recordSet.getRecordsCount();
         List<Map<String, Object>> list = recordSet == null ? null : recordSet.getRecordsAsMaps();
