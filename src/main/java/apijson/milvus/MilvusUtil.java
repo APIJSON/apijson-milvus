@@ -51,33 +51,39 @@ import static apijson.orm.AbstractSQLExecutor.KEY_RAW_LIST;
 public class MilvusUtil {
     public static final String TAG = "MilvusUtil";
 
+    public static <T> String getClientKey(@NotNull SQLConfig<T> config) {
+        String uri = config.getDBUri();
+        return uri + (uri.contains("?") ? "&" : "?") + "username=" + config.getDBAccount();
+    }
+
     public static final Map<String, MilvusServiceClient> CLIENT_MAP = new LinkedHashMap<>();
     public static <T> MilvusServiceClient getClient(@NotNull SQLConfig<T> config) {
-        String uri = config.getDBUri();
-        String key = uri + (uri.contains("?") ? "&" : "?") + "username=" + config.getDBAccount();
+        return getClient(config, true);
+    }
+    public static <T> MilvusServiceClient getClient(@NotNull SQLConfig<T> config, boolean autoNew) {
+        String key = getClientKey(config);
 
-        MilvusServiceClient conn = CLIENT_MAP.get(key);
-        if (conn == null) {
-            conn = new MilvusServiceClient(
+        MilvusServiceClient client = CLIENT_MAP.get(key);
+        if (autoNew && client == null) {
+            client = new MilvusServiceClient(
                     ConnectParam.newBuilder()
                             .withUri(config.getDBUri())
                             .withAuthorization(config.getDBAccount(), config.getDBPassword())
                             .build()
             );
-            CLIENT_MAP.put(key, conn);
+            CLIENT_MAP.put(key, client);
         }
-        return conn;
+        return client;
     }
 
     public static <T> void closeClient(@NotNull SQLConfig<T> config) {
-        MilvusServiceClient conn = getClient(config);
-        if (conn != null) {
-            String uri = config.getDBUri();
-            String key = uri + (uri.contains("?") ? "&" : "?") + "username=" + config.getDBAccount();
+        MilvusServiceClient client = getClient(config, false);
+        if (client != null) {
+            String key = getClientKey(config);
             CLIENT_MAP.remove(key);
 
 //            try {
-                conn.close();
+                client.close();
 //            }
 //            catch (Throwable e) {
 //                e.printStackTrace();

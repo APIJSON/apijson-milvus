@@ -73,7 +73,7 @@ Override execute in your SQLExecutor extends AbstractSQLExecutor
         @Override
         public JSONObject execute(@NotNull SQLConfig<Long> config, boolean unknownType) throws Exception {
             if (config.isMilvus()) {
-                return MilvusUtil.execute(config, unknownType);
+                return MilvusUtil.execute(config, null, unknownType);
             }
    
             return super.execute(config, unknownType);
