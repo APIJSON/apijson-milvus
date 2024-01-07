@@ -42,7 +42,7 @@ import static apijson.orm.AbstractSQLExecutor.KEY_RAW_LIST;
  *     \@Override
  *      public JSONObject execute(@NotNull SQLConfig<Long> config, boolean unknownType) throws Exception {
  *          if (config.isMilvus()) {
- *              return MilvusUtil.execute(config, unknownType);
+ *              return MilvusUtil.execute(config, null, unknownType);
  *          }
  *
  *          return super.execute(config, unknownType);
@@ -51,19 +51,58 @@ import static apijson.orm.AbstractSQLExecutor.KEY_RAW_LIST;
 public class MilvusUtil {
     public static final String TAG = "MilvusUtil";
 
+    public static final Map<String, MilvusServiceClient> CLIENT_MAP = new LinkedHashMap<>();
+    public static <T> MilvusServiceClient getClient(@NotNull SQLConfig<T> config) {
+        String uri = config.getDBUri();
+        String key = uri + (uri.contains("?") ? "&" : "?") + "username=" + config.getDBAccount();
+
+        MilvusServiceClient conn = CLIENT_MAP.get(key);
+        if (conn == null) {
+            conn = new MilvusServiceClient(
+                    ConnectParam.newBuilder()
+                            .withUri(config.getDBUri())
+                            .withAuthorization(config.getDBAccount(), config.getDBPassword())
+                            .build()
+            );
+            CLIENT_MAP.put(key, conn);
+        }
+        return conn;
+    }
+
+    public static <T> void closeClient(@NotNull SQLConfig<T> config) {
+        MilvusServiceClient conn = getClient(config);
+        if (conn != null) {
+            String uri = config.getDBUri();
+            String key = uri + (uri.contains("?") ? "&" : "?") + "username=" + config.getDBAccount();
+            CLIENT_MAP.remove(key);
+
+//            try {
+                conn.close();
+//            }
+//            catch (Throwable e) {
+//                e.printStackTrace();
+//            }
+        }
+    }
+
+    public static <T> void closeAllClient() {
+        Collection<MilvusServiceClient> cs = CLIENT_MAP.values();
+        for (MilvusServiceClient c : cs) {
+            try {
+                c.close();
+            }
+            catch (Throwable e) {
+                e.printStackTrace();
+            }
+        }
+        
+        CLIENT_MAP.clear();
+    }
+
+
     public static <T> JSONObject execute(@NotNull SQLConfig<T> config, String sql, boolean unknownType) throws Exception {
         if (RequestMethod.isQueryMethod(config.getMethod())) {
-            List<JSONObject> list = executeQuery(config, sql, unknownType);
-            JSONObject result = list == null || list.isEmpty() ? null : list.get(0);
-            if (result == null) {
-                result = new JSONObject(true);
-            }
-
-            if (list != null && list.size() > 1) {
-                result.put(KEY_RAW_LIST, list);
-            }
-
-            return result;
+            return execQuery(config, sql, unknownType);
         }
 
         return executeUpdate(config, sql);
@@ -75,9 +114,12 @@ public class MilvusUtil {
     }
 
     public static <T> JSONObject executeUpdate(SQLConfig<T> config, String sql) throws Exception {
-        MilvusServiceClient milvusClient = new MilvusServiceClient(
-                ConnectParam.newBuilder().withUri(config.getDBUri()).build()
-        );
+        return executeUpdate(null, config, sql);
+    }
+    public static <T> JSONObject executeUpdate(MilvusServiceClient client, SQLConfig<T> config, String sql) throws Exception {
+        if (client == null) {
+            client = getClient(config);
+        }
 
         R<MutationResult> mr;
         JSONObject result = AbstractParser.newSuccessResult();
@@ -135,7 +177,7 @@ public class MilvusUtil {
                     .withFields(fl)
                     .build();
 
-            mr = milvusClient.insert(param);
+            mr = client.insert(param);
         }
         else if (method == RequestMethod.PUT) {
 //            UpdateCredentialParam param = UpdateCredentialParam.newBuilder()
@@ -148,7 +190,7 @@ public class MilvusUtil {
                     .withCollectionName(config.getSQLTable())
                     .withExpr(config.setPrepared(false).getWhereString(false))
                     .build();
-            mr = milvusClient.delete(param);
+            mr = client.delete(param);
         }
         else {
             throw new UnsupportedOperationException("Milvus Java SDK 暂不支持 APIJSON " + method + " 这个操作！");
@@ -184,11 +226,28 @@ public class MilvusUtil {
         return result;
     }
 
+
+    public static <T> JSONObject execQuery(@NotNull SQLConfig<T> config, String sql, boolean unknownType) throws Exception {
+        List<JSONObject> list = executeQuery(config, sql, unknownType);
+        JSONObject result = list == null || list.isEmpty() ? null : list.get(0);
+        if (result == null) {
+            result = new JSONObject(true);
+        }
+
+        if (list != null && list.size() > 1) {
+            result.put(KEY_RAW_LIST, list);
+        }
+
+        return result;
+    }
+
     public static <T> List<JSONObject> executeQuery(@NotNull SQLConfig<T> config, String sql, boolean unknownType) throws Exception {
-        // 构建Milvus客户端
-        MilvusServiceClient milvusClient = new MilvusServiceClient(
-                ConnectParam.newBuilder().withUri(config.getDBUri()).build()
-        );
+        return executeQuery(null, config, sql, unknownType);
+    }
+    public static <T> List<JSONObject> executeQuery(MilvusServiceClient client, @NotNull SQLConfig<T> config, String sql, boolean unknownType) throws Exception {
+        if (client == null) {
+            client = getClient(config);
+        }
 
         /*
             查询语句含义：从book集合中筛选数据，并返回col1,col2两个列。筛选条件为，当数据的col3列值为4，col4列值为'a','b','c'中的任意一
@@ -196,9 +255,8 @@ public class MilvusUtil {
         */
 //      String sql = "select id,userId,momentId,content,date from Comment where vMatch(vec, 'L2', '[[1]]') and consistencyLevel('STRONG')  limit 1,1";
 
-
         // 使用Milvus客户端创建Milvus查询器
-        MilvusQuerier milvusQuerier = new MilvusQuerier(milvusClient);
+        MilvusQuerier milvusQuerier = new MilvusQuerier(client);
         // 使用查询器执行sql语句，并返回查询结果
         RecordSet recordSet = milvusQuerier.query(StringUtil.isEmpty(sql) ? config.getSQL(false) : sql);
 
@@ -217,7 +275,7 @@ public class MilvusUtil {
         for (int i = 0; i < list.size(); i++) {
             Map<String, Object> map = list.get(i);
 
-            JSONObject obj = new JSONObject(map == null ? new HashMap<>() : map);
+            JSONObject obj = map == null ? new JSONObject(1) : new JSONObject(new LinkedHashMap<>(map));
             // obj.put(col.getValue(), os[j]);
 //          for (int j = 0; j < os.length; j++) {
 //              ColumnDefinition col = cols.get(j);
